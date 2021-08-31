@@ -1,0 +1,76 @@
+name: Command - Monasay
+
+#
+# This workflow will respond to /monasay commands in Issue comments
+#
+
+on:
+  issue_comment:
+  
+jobs:
+  run-command:
+    name: Run Command
+
+    # Save some actions minutes, and only execute when necessary :-)
+    if: startsWith(github.event.comment.body, '/monasay')
+
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Acknowledge Command
+        uses: actions/github-script@v4
+        with:
+          script: |
+            // Put eyes on the comment
+            await github.reactions.createForIssueComment({
+                ...context.repo,
+                comment_id: context.payload.comment.id,
+                content: 'eyes'
+              });
+
+      - name: Extract any text provided by the user
+        id: comment_text
+        uses: actions/github-script@v4
+        with:
+          script: |
+            const comment = context.payload.comment.body;
+            const text = comment.substring('/monasay'.length).trim();
+
+            core.startGroup('Monasay Text');
+            if (text && text.length > 0) {
+              let cleanedText = text.replace(/\r?\n|\r/g, ' ');
+
+              core.info(`Text provided by the user, ${context.actor}, was "${cleanedText}".`);
+              core.setOutput('text', encodeURI(cleanedText));
+            } else {
+              core.info(`No text provided by the user, ${context.actor}`)
+            }
+            core.endGroup();
+
+      - name: Obtain Monasay and post comment back
+        uses: actions/github-script@v4
+        env:
+          text: ${{ steps.comment_text.outputs.text }}
+        with:
+          script: |
+            const { execSync } = require("child_process");
+            const payload = context.payload;
+            
+            let command = 'curl https://api.github.com/octocat';
+            if (process.env.text) {
+              command += `?s=${process.env.text}`;
+            }
+
+            let shellOutput = null;
+            try {
+              shellOutput = execSync(command, { 'shell': '/bin/bash' }).toString();
+            }
+            catch(error) {
+              shellOutput = error.message;
+            }
+
+            await github.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body: shellOutput
+              });
